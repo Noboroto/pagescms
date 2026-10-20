@@ -1,13 +1,25 @@
 # Fork patches (on top of upstream 2.1.8)
 
-Google sign-in + Google One Tap. Off unless `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set.
+Google sign-in + Google One Tap, configured from the web UI by the repo owner
+(Settings, "Google sign-in" card). Off until a Client ID + secret are saved and enabled.
+No env vars: the secret is stored AES-GCM encrypted with `CRYPTO_KEY` in table `google_auth_setting`.
+
+"Repo owner" = a user signed in with GitHub whose GitHub account id equals the account of a
+GitHub App installation (`GET /app/installations`). Google / email-OTP-only users never qualify.
 
 | File | Why |
 | --- | --- |
-| `lib/google-auth.ts` (new) | Env gating and the sign-up gate (admin / collaborator / invited email only). |
-| `lib/google-one-tap-client.ts` (new) | Per-Client-ID One Tap auth client (ID is a runtime env, so not on the shared client). |
-| `components/google-one-tap.tsx` (new) | Renders the One Tap prompt. |
-| `lib/auth.ts` | `socialProviders.google`, `oneTap` plugin, `google` in `trustedProviders`, `user.create.before` gate for Google. |
-| `components/sign-in.tsx` | "Sign in with Google" button + One Tap, only when `googleClientId` prop is set. |
-| `app/(auth)/sign-in/page.tsx` | Passes the Client ID to `SignIn` at request time. |
-| `.env.local.example` | Documents the two env vars. |
+| `db/schema.ts`, `db/migrations/*google_auth_setting*` | `google_auth_setting` single-row table (`version` bumps on save). |
+| `lib/repo-owner.ts` (new) | Repo-owner check via the App's installations (60s cache). |
+| `lib/google-settings.ts` (new) | Read / validate / encrypt-and-save the Google client. |
+| `lib/actions/google-settings.ts` (new) | Owner-only save server action. |
+| `components/settings/google-sign-in.tsx` (new) | Settings form (secret write-only) + origin / redirect URI to paste into Google Cloud. |
+| `app/(main)/settings/page.tsx` | Shows the card to the repo owner only. |
+| `lib/google-auth.ts` (new) | Sign-up gate (admin / collaborator / invited / repo-owner email only). |
+| `lib/google-one-tap-client.ts` (new), `components/google-one-tap.tsx` (new) | Per-Client-ID One Tap client + prompt. |
+| `lib/auth.ts` | Better Auth fixes providers/plugins at init, so `getAuth()` returns a cached instance rebuilt (15s TTL check) when the settings version changes; `auth` is no longer exported. |
+| `app/api/auth/[...all]/route.ts`, `lib/admin.ts`, `lib/session-server.ts`, `lib/actions/*`, other `auth.api` callers | Use `await getAuth()`. |
+| `components/sign-in.tsx`, `app/(auth)/sign-in/page.tsx` | "Sign in with Google" + One Tap when the active instance has Google. |
+| `.env.local.example` | Notes that Google is configured in Settings. |
+
+Note: the `auth:generate` script (Better Auth CLI) expects an exported `auth`; it is not used by the app.

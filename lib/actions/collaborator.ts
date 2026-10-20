@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { getInstallationRepos, getInstallations } from "@/lib/github-app";
 import { requireGithubRepoWriteAccess } from "@/lib/authz-server";
 import { InviteEmailTemplate } from "@/components/email/invite";
@@ -112,7 +112,7 @@ const createCollaboratorInviteUrl = async ({
 const handleAddCollaborator = async (prevState: any, formData: FormData) => {
 	try {
 		// TODO: remove the requirement for Github account, let any collaborator invite others
-		const session = await auth.api.getSession({
+		const session = await (await getAuth()).api.getSession({
       headers: await headers(),
     });
     const user = session?.user;
@@ -265,7 +265,7 @@ const handleAddCollaborator = async (prevState: any, formData: FormData) => {
 // Remove a collaborator from a repository.
 const handleRemoveCollaborator = async (collaboratorId: number, owner: string, repo: string) => {
 	try {
-		const session = await auth.api.getSession({
+		const session = await (await getAuth()).api.getSession({
       headers: await headers(),
     });
     const user = session?.user;
@@ -304,7 +304,7 @@ const handleRemoveCollaborator = async (collaboratorId: number, owner: string, r
 
 const handleResendCollaboratorInvite = async (collaboratorId: number, owner: string, repo: string) => {
   try {
-    const session = await auth.api.getSession({
+    const session = await (await getAuth()).api.getSession({
       headers: await headers(),
     });
     const user = session?.user;

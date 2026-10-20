@@ -1,9 +1,13 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { and, eq } from "drizzle-orm";
-import { auth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { db } from "@/db";
 import { accountTable } from "@/db/schema";
+import { isRepoOwnerUser } from "@/lib/repo-owner";
+import { getGoogleAuthStatus } from "@/lib/google-settings";
+import { getBaseUrl } from "@/lib/base-url";
+import { GoogleSignInSettings } from "@/components/settings/google-sign-in";
 import { MainRootLayout } from "../main-root-layout";
 import { Installations } from "@/components/settings/installations";
 import { Identities } from "@/components/settings/identities";
@@ -21,7 +25,7 @@ import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default async function Page() {
-  const session = await auth.api.getSession({
+  const session = await (await getAuth()).api.getSession({
     headers: await headers(),
   });
   const user = session?.user;
@@ -36,6 +40,11 @@ export default async function Page() {
   const githubManageUrl = process.env.GITHUB_APP_CLIENT_ID
     ? `https://github.com/settings/connections/applications/${process.env.GITHUB_APP_CLIENT_ID}`
     : null;
+
+  // Sign-in provider settings: repo owner only (GitHub account with the App installed).
+  const isOwner = githubConnected && (await isRepoOwnerUser(user.id));
+  const googleStatus = isOwner ? await getGoogleAuthStatus() : null;
+  const baseUrl = getBaseUrl().replace(/\/+$/, "");
 
   return (
     <MainRootLayout>
@@ -79,6 +88,26 @@ export default async function Page() {
               />
             </CardContent>
           </Card>
+
+          {googleStatus && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Google sign-in</CardTitle>
+                <CardDescription>
+                  Let invited people sign in with Google. Only you, as the repository owner, can see this.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <GoogleSignInSettings
+                  initialClientId={googleStatus.clientId}
+                  secretSet={googleStatus.secretSet}
+                  initialEnabled={googleStatus.enabled}
+                  origin={new URL(baseUrl).origin}
+                  redirectUri={`${baseUrl}/api/auth/callback/google`}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {githubConnected && (
             <Card>

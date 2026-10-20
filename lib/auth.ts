@@ -12,11 +12,12 @@ import { syncGithubProfileOnLogin } from "@/lib/github-account";
 import { bindCollaboratorInvitesToUser } from "@/lib/collaborator-access";
 import { LoginEmailTemplate } from "@/components/email/login";
 import { render } from "@react-email/render";
-import { getGoogleClientId, isEmailAllowedToSignUp, isGoogleAuthEnabled, isGoogleSignIn } from "@/lib/google-auth";
+import { isEmailAllowedToSignUp, isGoogleSignIn } from "@/lib/google-auth";
+import { readGoogleAuthRow, resolveGoogleConfig, type GoogleAuthConfig } from "@/lib/google-settings";
 
-const googleEnabled = isGoogleAuthEnabled();
-
-export const auth = betterAuth({
+// Better Auth providers/plugins are fixed at init, so the instance is rebuilt
+// when the Google settings version changes (see getAuthState).
+const createAuth = (google: GoogleAuthConfig | null) => betterAuth({
   baseURL: getBaseUrl(),
   secret: (process.env.AUTH_SECRET || process.env.BETTER_AUTH_SECRET) as string,
   user: {
@@ -31,17 +32,17 @@ export const auth = betterAuth({
   account: {
     accountLinking: {
       enabled: true,
-      trustedProviders: googleEnabled ? ["github", "google"] : ["github"],
+      trustedProviders: google ? ["github", "google"] : ["github"],
       disableImplicitLinking: false,
       updateUserInfoOnLink: true,
       allowUnlinkingAll: false,
     },
   },
   socialProviders: {
-    ...(googleEnabled && {
+    ...(google && {
       google: {
-        clientId: getGoogleClientId() as string,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+        clientId: google.clientId,
+        clientSecret: google.clientSecret,
       },
     }),
     github: {
@@ -126,7 +127,7 @@ export const auth = betterAuth({
         // Google must not open sign-up to everyone: a new user is only created
         // for an admin, collaborator or invited email. Existing users link.
         before: async (user, context) => {
-          if (!googleEnabled || !isGoogleSignIn(context)) return;
+          if (!google || !isGoogleSignIn(context)) return;
           if (await isEmailAllowedToSignUp(user.email)) return;
           throw new APIError("FORBIDDEN", {
             message: "This Google account has not been invited to Pages CMS.",
@@ -178,7 +179,7 @@ export const auth = betterAuth({
   },
   plugins: [
     nextCookies(),
-    ...(googleEnabled ? [oneTap({ clientId: getGoogleClientId() as string })] : []),
+    ...(google ? [oneTap({ clientId: google.clientId })] : []),
     emailOTP({
       expiresIn: 300,
       otpLength: 6,
@@ -206,3 +207,55 @@ export const auth = betterAuth({
     }),
   ],
 });
+
+type Auth = ReturnType<typeof createAuth>;
+type AuthState = { auth: Auth; version: number; googleClientId: string | null };
+
+// Short TTL: a settings change lands on every instance within ~15s.
+const CONFIG_TTL_MS = 15_000;
+
+let current: AuthState | null = null;
+let checkedAt = 0;
+let inflight: Promise<AuthState> | null = null;
+
+const refreshAuthState = async (): Promise<AuthState> => {
+  try {
+    const row = await readGoogleAuthRow();
+    const version = row?.version ?? 0;
+    if (!current || current.version !== version) {
+      const google = await resolveGoogleConfig(row);
+      current = { auth: createAuth(google), version, googleClientId: google?.clientId ?? null };
+    }
+    checkedAt = Date.now();
+    return current;
+  } catch (error) {
+    console.error("[auth] settings reload failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    if (current) {
+      checkedAt = Date.now();
+      return current;
+    }
+    // Settings unreadable on first use: serve GitHub/email only and retry on the next call.
+    checkedAt = 0;
+    return { auth: createAuth(null), version: -1, googleClientId: null };
+  }
+};
+
+const getAuthState = (): Promise<AuthState> => {
+  if (current && Date.now() - checkedAt < CONFIG_TTL_MS) return Promise.resolve(current);
+  inflight ??= refreshAuthState().finally(() => {
+    inflight = null;
+  });
+  return inflight;
+};
+
+export const getAuth = async () => (await getAuthState()).auth;
+
+// Client ID of the active Google provider, null when Google sign-in is off.
+export const getActiveGoogleClientId = async () => (await getAuthState()).googleClientId;
+
+// Call after saving settings: this instance re-checks on the next request.
+export const invalidateAuthCache = () => {
+  checkedAt = 0;
+};

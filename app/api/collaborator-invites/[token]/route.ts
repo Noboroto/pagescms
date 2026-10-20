@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import { auth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { db } from "@/db";
 import { collaboratorInviteTable, collaboratorTable } from "@/db/schema";
 
@@ -98,7 +98,7 @@ export async function GET(
     return Response.json({ status: "unavailable" } satisfies InviteState);
   }
 
-  const session = await auth.api.getSession({
+  const session = await (await getAuth()).api.getSession({
     headers: request.headers,
   });
   const destinationPath = getDestinationPath(invite);
@@ -135,7 +135,7 @@ export async function POST(
     });
   }
 
-  const session = await auth.api.getSession({
+  const session = await (await getAuth()).api.getSession({
     headers: request.headers,
   });
   if (!session?.user) {

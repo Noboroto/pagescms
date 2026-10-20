@@ -1,15 +1,15 @@
 import { cache } from "react";
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 
 const getServerSession = cache(async () => {
-  return auth.api.getSession({
+  return (await getAuth()).api.getSession({
     headers: await headers(),
   });
 });
 
 const requireApiUserSession = async () => {
-  const session = await auth.api.getSession({
+  const session = await (await getAuth()).api.getSession({
     headers: await headers(),
   });
   if (!session?.user) {

@@ -1,13 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
-import { collaboratorInviteTable, collaboratorTable } from "@/db/schema";
-
-// Google sign-in is optional: without both env vars the provider, the One Tap
-// plugin and the UI are all off, so behavior matches upstream.
-const getGoogleClientId = () => process.env.GOOGLE_CLIENT_ID?.trim() || null;
-
-const isGoogleAuthEnabled = () =>
-  Boolean(getGoogleClientId() && process.env.GOOGLE_CLIENT_SECRET?.trim());
+import { collaboratorInviteTable, collaboratorTable, userTable } from "@/db/schema";
+import { isRepoOwnerUser } from "@/lib/repo-owner";
 
 // Paths where Better Auth creates a user from a Google identity.
 const isGoogleSignIn = (context: { path?: string; params?: Record<string, string> } | null | undefined) =>
@@ -39,7 +33,15 @@ const isEmailAllowedToSignUp = async (email: string) => {
     .from(collaboratorInviteTable)
     .where(sql`lower(${collaboratorInviteTable.email}) = ${normalized}`)
     .limit(1);
-  return invite.length > 0;
+  if (invite.length > 0) return true;
+
+  // The repo owner's GitHub-linked account (matched by email).
+  const owner = await db
+    .select({ id: userTable.id })
+    .from(userTable)
+    .where(sql`lower(${userTable.email}) = ${normalized}`)
+    .limit(1);
+  return owner.length > 0 && (await isRepoOwnerUser(owner[0].id));
 };
 
-export { getGoogleClientId, isEmailAllowedToSignUp, isGoogleAuthEnabled, isGoogleSignIn };
+export { isEmailAllowedToSignUp, isGoogleSignIn };

@@ -2,7 +2,7 @@
 
 import { createOctokitInstance } from "@/lib/utils/octokit";
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { getInstallations } from "@/lib/github-app";
 import { requireGithubUserToken } from "@/lib/authz-server";
 import templates from "@/lib/templates";
@@ -11,7 +11,7 @@ import { z } from "zod";
 // Copy a template repository.
 const handleCopyTemplate = async (prevState: any, formData: FormData) => {
   try {
-		const session = await auth.api.getSession({
+		const session = await (await getAuth()).api.getSession({
       headers: await headers(),
     });
     const user = session?.user;

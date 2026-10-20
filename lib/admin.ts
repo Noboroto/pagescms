@@ -1,7 +1,7 @@
 import "server-only";
 
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 import { createHttpError } from "@/lib/api-error";
 import type { User } from "@/types/user";
 
@@ -24,7 +24,7 @@ const hasAdminAccess = (user: Pick<User, "email"> | null | undefined) => {
 };
 
 const requireAdminSession = async () => {
-  const session = await auth.api.getSession({
+  const session = await (await getAuth()).api.getSession({
     headers: await headers(),
   });
   const user = session?.user;

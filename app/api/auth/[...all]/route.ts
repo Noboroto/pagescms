@@ -1,4 +1,7 @@
 import { toNextJsHandler } from "better-auth/next-js";
-import { auth } from "@/lib/auth";
+import { getAuth } from "@/lib/auth";
 
-export const { GET, POST, PUT, PATCH, DELETE } = toNextJsHandler(auth);
+// The auth instance is resolved per request so settings changes apply without a redeploy.
+export const { GET, POST, PUT, PATCH, DELETE } = toNextJsHandler(async (request: Request) =>
+  (await getAuth()).handler(request),
+);

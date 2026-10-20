@@ -76,6 +76,19 @@ const githubInstallationTokenTable = pgTable("github_installation_token", {
   uq_github_installation_token_installationId: uniqueIndex("uq_github_installation_token_installationId").on(table.installationId)
 }));
 
+// Single row (id = 1): Google OAuth client configured from the settings UI.
+// `version` is bumped on every save so running instances rebuild their auth config.
+const googleAuthSettingTable = pgTable("google_auth_setting", {
+  id: integer("id").primaryKey().default(1),
+  clientId: text("client_id"),
+  secretCiphertext: text("secret_ciphertext"),
+  secretIv: text("secret_iv"),
+  enabled: boolean("enabled").notNull().default(false),
+  version: integer("version").notNull().default(1),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow()
+});
+
 const collaboratorTable = pgTable("collaborator", {
   id: serial("id").primaryKey(),
   type: text("type").notNull(),
@@ -215,6 +228,7 @@ export {
   accountTable,
   verificationTable,
   githubInstallationTokenTable,
+  googleAuthSettingTable,
   collaboratorTable,
   collaboratorInviteTable,
   configTable,
