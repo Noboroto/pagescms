@@ -68,3 +68,18 @@ never blocked. The actions POST route rejects an over-limit payload with a clear
 | `components/entry/entry-form.tsx` | `onValuesChange` prop (react-hook-form `subscribe`). |
 | `components/entry/entry.tsx` | Counter badge, warning/error notice, passes `disabledReason`. |
 | `components/repo/repo-action-buttons.tsx` | `disabledReason` prop: disabled buttons with tooltip. |
+
+## Default repository
+
+Optional env `DEFAULT_REPO` (`owner/repo` or `owner/repo@branch`). When set, `/` redirects server-side to
+`/{owner}/{repo}[/{branch}]` if the user can access it (`getToken`: GitHub access or collaborator row); otherwise the
+normal home page renders (no loop). All sign-in methods land on `/`, so they are covered. The "Create from a template"
+section is hidden. `/?home=1` skips the redirect ("All projects" menu item, back links, "Choose another repository").
+Unset: upstream behaviour.
+
+| File | Why |
+| --- | --- |
+| `lib/default-repo.ts` (new) | Parse `DEFAULT_REPO`, build the path. |
+| `app/(main)/page.tsx`, `app/(main)/home-page.tsx` | Server wrapper doing the redirect; old client page moved, `hideTemplates` prop. |
+| `components/repo/repo-sidebar.tsx`, `app/(main)/[owner]/[repo]/**/layout.tsx`, `app/(main)/settings/page.tsx`, `app/(main)/admin/page.tsx` | Home links use `/?home=1`. |
+| `.env.local.example` | Documents `DEFAULT_REPO`. |

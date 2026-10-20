@@ -182,7 +182,7 @@ export default async function Page({
             buttonVariants({ variant: "outline", size: "xs" }),
             "inline-flex",
           )}
-          href="/"
+          href="/?home=1"
         >
           <ArrowLeft />
           Go home

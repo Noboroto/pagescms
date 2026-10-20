@@ -82,7 +82,7 @@ export default async function Layout({
             <EmptyDescription>You do not have permission to access this repository.</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
-            <Link className={buttonVariants({ variant: "default" })} href="/">
+            <Link className={buttonVariants({ variant: "default" })} href="/?home=1">
               Choose another repository
             </Link>
           </EmptyContent>

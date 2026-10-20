@@ -244,7 +244,7 @@ function RepoSwitcher() {
             )}
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <Link href="/">All projects</Link>
+              <Link href="/?home=1">All projects</Link>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
