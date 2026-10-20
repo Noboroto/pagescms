@@ -1,13 +1,29 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
-import { collaboratorInviteTable, collaboratorTable, userTable } from "@/db/schema";
-import { isRepoOwnerUser } from "@/lib/repo-owner";
+import { collaboratorInviteTable, collaboratorTable } from "@/db/schema";
 
-// Paths where Better Auth creates a user from a Google identity.
-const isGoogleSignIn = (context: { path?: string; params?: Record<string, string> } | null | undefined) =>
-  context?.path === "/one-tap/callback" ||
-  (context?.path?.startsWith("/callback/") === true &&
-    (context.params?.id === "google" || context.path === "/callback/google"));
+type AuthHookContext = {
+  path?: string;
+  params?: Record<string, string>;
+  body?: unknown;
+};
+
+// Every route where Better Auth can create a user from a Google identity:
+// the redirect callback, the One Tap callback, and ID-token sign-in
+// (POST /sign-in/social with provider "google").
+const isGoogleSignIn = (context: AuthHookContext | null | undefined) => {
+  const path = context?.path;
+  if (!path) return false;
+  if (path === "/one-tap/callback") return true;
+  if (path.startsWith("/callback/")) {
+    return context?.params?.id === "google" || path.split("/").pop() === "google";
+  }
+  if (path === "/sign-in/social") {
+    const provider = (context?.body as { provider?: unknown } | undefined)?.provider;
+    return provider === "google";
+  }
+  return false;
+};
 
 // Same ADMIN_EMAILS allowlist as lib/admin.ts (not imported: it pulls in lib/auth).
 const isAdminEmail = (email: string) =>
@@ -35,13 +51,7 @@ const isEmailAllowedToSignUp = async (email: string) => {
     .limit(1);
   if (invite.length > 0) return true;
 
-  // The repo owner's GitHub-linked account (matched by email).
-  const owner = await db
-    .select({ id: userTable.id })
-    .from(userTable)
-    .where(sql`lower(${userTable.email}) = ${normalized}`)
-    .limit(1);
-  return owner.length > 0 && (await isRepoOwnerUser(owner[0].id));
+  return false;
 };
 
 export { isEmailAllowedToSignUp, isGoogleSignIn };

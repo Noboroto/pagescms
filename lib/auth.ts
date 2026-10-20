@@ -32,7 +32,9 @@ const createAuth = (google: GoogleAuthConfig | null) => betterAuth({
   account: {
     accountLinking: {
       enabled: true,
-      trustedProviders: google ? ["github", "google"] : ["github"],
+      // Google is deliberately not trusted: it only links to an existing user
+      // when the token reports email_verified.
+      trustedProviders: ["github"],
       disableImplicitLinking: false,
       updateUserInfoOnLink: true,
       allowUnlinkingAll: false,
@@ -125,10 +127,13 @@ const createAuth = (google: GoogleAuthConfig | null) => betterAuth({
     user: {
       create: {
         // Google must not open sign-up to everyone: a new user is only created
-        // for an admin, collaborator or invited email. Existing users link.
+        // for a verified admin, collaborator or invited email. Existing users link
+        // only when Google reports the email as verified.
         before: async (user, context) => {
-          if (!google || !isGoogleSignIn(context)) return;
-          if (await isEmailAllowedToSignUp(user.email)) return;
+          if (!isGoogleSignIn(context)) return;
+          // Fail closed: unverified Google emails never create a user, and
+          // verified ones must be admin / collaborator / invited.
+          if (google && user.emailVerified === true && (await isEmailAllowedToSignUp(user.email))) return;
           throw new APIError("FORBIDDEN", {
             message: "This Google account has not been invited to Pages CMS.",
           });
@@ -213,21 +218,41 @@ type AuthState = { auth: Auth; version: number; googleClientId: string | null };
 
 // Short TTL: a settings change lands on every instance within ~15s.
 const CONFIG_TTL_MS = 15_000;
+// Settings unreadable on first use: reuse one GitHub/email-only instance briefly
+// instead of building a new Better Auth instance per request.
+const FALLBACK_TTL_MS = 5_000;
 
 let current: AuthState | null = null;
 let checkedAt = 0;
 let inflight: Promise<AuthState> | null = null;
+let fallback: { state: AuthState; expiresAt: number } | null = null;
+// Bumped on every invalidation so a load that started before a settings save can
+// never overwrite the state loaded after it.
+let generation = 0;
+
+const loadAuthState = async (): Promise<AuthState> => {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const startedAt = generation;
+    const row = await readGoogleAuthRow();
+    const version = row?.version ?? 0;
+    let next = current;
+    if (!next || next.version !== version) {
+      const google = await resolveGoogleConfig(row);
+      next = { auth: createAuth(google), version, googleClientId: google?.clientId ?? null };
+    }
+    if (startedAt === generation) {
+      current = next;
+      checkedAt = Date.now();
+      fallback = null;
+      return next;
+    }
+  }
+  throw new Error("Auth settings kept changing while loading.");
+};
 
 const refreshAuthState = async (): Promise<AuthState> => {
   try {
-    const row = await readGoogleAuthRow();
-    const version = row?.version ?? 0;
-    if (!current || current.version !== version) {
-      const google = await resolveGoogleConfig(row);
-      current = { auth: createAuth(google), version, googleClientId: google?.clientId ?? null };
-    }
-    checkedAt = Date.now();
-    return current;
+    return await loadAuthState();
   } catch (error) {
     console.error("[auth] settings reload failed", {
       error: error instanceof Error ? error.message : String(error),
@@ -236,17 +261,25 @@ const refreshAuthState = async (): Promise<AuthState> => {
       checkedAt = Date.now();
       return current;
     }
-    // Settings unreadable on first use: serve GitHub/email only and retry on the next call.
-    checkedAt = 0;
-    return { auth: createAuth(null), version: -1, googleClientId: null };
+    if (!fallback || fallback.expiresAt <= Date.now()) {
+      fallback = {
+        state: { auth: createAuth(null), version: -1, googleClientId: null },
+        expiresAt: Date.now() + FALLBACK_TTL_MS,
+      };
+    }
+    return fallback.state;
   }
 };
 
 const getAuthState = (): Promise<AuthState> => {
   if (current && Date.now() - checkedAt < CONFIG_TTL_MS) return Promise.resolve(current);
-  inflight ??= refreshAuthState().finally(() => {
-    inflight = null;
-  });
+  if (!current && fallback && fallback.expiresAt > Date.now()) return Promise.resolve(fallback.state);
+  if (!inflight) {
+    const promise: Promise<AuthState> = refreshAuthState().finally(() => {
+      if (inflight === promise) inflight = null;
+    });
+    inflight = promise;
+  }
   return inflight;
 };
 
@@ -257,5 +290,8 @@ export const getActiveGoogleClientId = async () => (await getAuthState()).google
 
 // Call after saving settings: this instance re-checks on the next request.
 export const invalidateAuthCache = () => {
+  generation++;
   checkedAt = 0;
+  fallback = null;
+  inflight = null;
 };

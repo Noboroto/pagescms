@@ -4,18 +4,29 @@ Google sign-in + Google One Tap, configured from the web UI by the repo owner
 (Settings, "Google sign-in" card). Off until a Client ID + secret are saved and enabled.
 No env vars: the secret is stored AES-GCM encrypted with `CRYPTO_KEY` in table `google_auth_setting`.
 
-"Repo owner" = a user signed in with GitHub whose GitHub account id equals the account of a
-GitHub App installation (`GET /app/installations`). Google / email-OTP-only users never qualify.
+"Repo owner" = the one user whose OAuth-linked GitHub account id equals the GitHub App's owner
+(`GET /app` -> `owner.id`, App JWT, cached 10 min). Installing the App does not qualify; Google /
+email-OTP-only users never qualify; any lookup failure denies.
+
+Google hardening: `google` is not an account-linking trusted provider (links to an existing user only when
+the token has `email_verified`); the sign-up gate (`databaseHooks.user.create.before`) covers the redirect
+callback, `/one-tap/callback` and `POST /sign-in/social` (provider google + idToken), rejects unverified
+emails, and only admits ADMIN_EMAILS / collaborators / invites. Better Auth 1.5.6 has no per-provider
+`requireEmailVerification`, so the gate enforces it. Settings caches (auth instance, Brevo) use a generation
+counter so a load that started before a save cannot overwrite newer config; the fallback auth instance
+(settings DB unreadable) is cached 5s. Settings server actions return generic errors (`lib/action-error.ts`);
+only validation / authorization messages reach the browser.
 
 | File | Why |
 | --- | --- |
 | `db/schema.ts`, `db/migrations/*google_auth_setting*` | `google_auth_setting` single-row table (`version` bumps on save). |
-| `lib/repo-owner.ts` (new) | Repo-owner check via the App's installations (60s cache). |
+| `lib/repo-owner.ts` (new) | Repo-owner check: App owner id from `GET /app` vs linked GitHub account id. |
+| `lib/action-error.ts` (new) | `UserFacingError` + generic server-action error mapping. |
 | `lib/google-settings.ts` (new) | Read / validate / encrypt-and-save the Google client. |
 | `lib/actions/google-settings.ts` (new) | Owner-only save server action. |
 | `components/settings/google-sign-in.tsx` (new) | Settings form (secret write-only) + origin / redirect URI to paste into Google Cloud. |
 | `app/(main)/settings/page.tsx` | Shows the card to the repo owner only. |
-| `lib/google-auth.ts` (new) | Sign-up gate (admin / collaborator / invited / repo-owner email only). |
+| `lib/google-auth.ts` (new) | Sign-up gate (verified admin / collaborator / invited email only). |
 | `lib/google-one-tap-client.ts` (new), `components/google-one-tap.tsx` (new) | Per-Client-ID One Tap client + prompt. |
 | `lib/auth.ts` | Better Auth fixes providers/plugins at init, so `getAuth()` returns a cached instance rebuilt (15s TTL check) when the settings version changes; `auth` is no longer exported. |
 | `app/api/auth/[...all]/route.ts`, `lib/admin.ts`, `lib/session-server.ts`, `lib/actions/*`, other `auth.api` callers | Use `await getAuth()`. |

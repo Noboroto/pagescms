@@ -3,49 +3,46 @@ import "server-only";
 import { App } from "@octokit/app";
 import { getGithubId } from "@/lib/github-account";
 
-// The "repo owner" is the person whose personal GitHub account has this GitHub
-// App installed. Matching is by GitHub account id (not the editable login), and
-// only against installations returned for the App itself, so Google / email-OTP
-// users (no linked GitHub account) can never qualify.
-const CACHE_TTL_MS = 60_000;
+// The "repo owner" is the single GitHub account that owns this GitHub App
+// (`GET /app` -> owner.id). A user qualifies only when their OAuth-linked GitHub
+// account id equals it. Google / email-OTP users (no linked GitHub account) and
+// anyone else who merely installed the App never qualify. Any failure denies.
+const CACHE_TTL_MS = 10 * 60_000;
 
-let cached: { ids: Set<number>; expiresAt: number } | null = null;
+let cached: { ownerId: number; expiresAt: number } | null = null;
+let inflight: Promise<number> | null = null;
 
-const loadInstallationAccountIds = async () => {
-  if (cached && cached.expiresAt > Date.now()) return cached.ids;
-
+const fetchAppOwnerId = async () => {
   const app = new App({
     appId: process.env.GITHUB_APP_ID!,
     privateKey: process.env.GITHUB_APP_PRIVATE_KEY!,
   });
+  const { data } = await app.octokit.request("GET /app");
+  const owner = data?.owner;
+  if (!owner || !Number.isInteger(owner.id)) throw new Error("GitHub App has no resolvable owner.");
+  return owner.id;
+};
 
-  const ids = new Set<number>();
-  const perPage = 100;
-  for (let page = 1; page <= 20; page++) {
-    const response = await app.octokit.request("GET /app/installations", {
-      per_page: perPage,
-      page,
+const getAppOwnerId = async (): Promise<number> => {
+  if (cached && cached.expiresAt > Date.now()) return cached.ownerId;
+  inflight ??= fetchAppOwnerId()
+    .then((ownerId) => {
+      cached = { ownerId, expiresAt: Date.now() + CACHE_TTL_MS };
+      return ownerId;
+    })
+    .finally(() => {
+      inflight = null;
     });
-    for (const installation of response.data) {
-      const account = installation.account;
-      if (account && "type" in account && account.type === "User") {
-        ids.add(account.id);
-      }
-    }
-    if (response.data.length < perPage) break;
-  }
-
-  cached = { ids, expiresAt: Date.now() + CACHE_TTL_MS };
-  return ids;
+  return inflight;
 };
 
 const isRepoOwnerUser = async (userId: string) => {
   try {
     const githubId = await getGithubId(userId);
     if (githubId === null) return false;
-    return (await loadInstallationAccountIds()).has(githubId);
+    return githubId === (await getAppOwnerId());
   } catch (error) {
-    console.warn("[repo-owner] installation lookup failed", {
+    console.warn("[repo-owner] owner lookup failed", {
       error: error instanceof Error ? error.message : String(error),
     });
     return false;

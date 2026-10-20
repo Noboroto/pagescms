@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { BrevoRequestError, sendViaBrevo } from "@/lib/brevo";
 import { getBrevoConfig, saveBrevoSettings } from "@/lib/brevo-settings";
+import { toActionError } from "@/lib/action-error";
 import { requireRepoOwner } from "@/lib/require-repo-owner";
 
 type ActionResult = { success: true } | { success: false; error: string };
@@ -19,7 +20,7 @@ const saveBrevoMailSettings = async (input: {
     revalidatePath("/settings");
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : "Could not save settings." };
+    return toActionError("brevo-settings", error, "Could not save settings.");
   }
 };
 
@@ -47,9 +48,10 @@ const sendBrevoTestEmail = async (): Promise<ActionResult> => {
           : error.status === 400
             ? " Check that the sender email is verified in Brevo."
             : "";
+      console.error("[brevo-settings] test email failed", { status: error.status });
       return { success: false, error: `${error.message}${hint}` };
     }
-    return { success: false, error: error instanceof Error ? error.message : "Could not send test email." };
+    return toActionError("brevo-settings", error, "Could not send test email.");
   }
 };
 

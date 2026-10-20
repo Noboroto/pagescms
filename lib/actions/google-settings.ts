@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { invalidateAuthCache } from "@/lib/auth";
+import { toActionError } from "@/lib/action-error";
 import { requireRepoOwner } from "@/lib/require-repo-owner";
 import { saveGoogleAuthSettings } from "@/lib/google-settings";
 
@@ -20,7 +21,7 @@ const saveGoogleSignInSettings = async (input: {
     revalidatePath("/settings");
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : "Could not save settings." };
+    return toActionError("google-settings", error, "Could not save settings.");
   }
 };
 

@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { brevoMailSettingTable } from "@/db/schema";
+import { UserFacingError } from "@/lib/action-error";
 import { decrypt, encrypt } from "@/lib/crypto";
 
 // Brevo transactional email stored in the DB (API key encrypted with CRYPTO_KEY).
@@ -45,6 +46,9 @@ const readRow = async () => {
 
 let cached: { value: BrevoConfig | null; expiresAt: number } | null = null;
 let inflight: Promise<BrevoConfig | null> | null = null;
+// Bumped on invalidation so a load that started before a save cannot overwrite
+// the cache with the older config.
+let generation = 0;
 
 const loadConfig = async (): Promise<BrevoConfig | null> => {
   const row = await readRow();
@@ -61,26 +65,32 @@ const loadConfig = async (): Promise<BrevoConfig | null> => {
 // Null when Brevo is not configured in Settings (callers fall back to env providers).
 const getBrevoConfig = async (): Promise<BrevoConfig | null> => {
   if (cached && cached.expiresAt > Date.now()) return cached.value;
-  inflight ??= loadConfig()
-    .then((value) => {
-      cached = { value, expiresAt: Date.now() + CACHE_TTL_MS };
-      return value;
-    })
-    .catch((error) => {
-      console.error("[brevo-settings] reload failed", {
-        error: error instanceof Error ? error.message : String(error),
+  if (!inflight) {
+    const startedAt = generation;
+    const promise: Promise<BrevoConfig | null> = loadConfig()
+      .then((value) => {
+        if (startedAt === generation) cached = { value, expiresAt: Date.now() + CACHE_TTL_MS };
+        return value;
+      })
+      .catch((error) => {
+        console.error("[brevo-settings] reload failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        // Keep serving the last known config; otherwise fall back to env providers.
+        return cached?.value ?? null;
+      })
+      .finally(() => {
+        if (inflight === promise) inflight = null;
       });
-      // Keep serving the last known config; otherwise fall back to env providers.
-      return cached?.value ?? null;
-    })
-    .finally(() => {
-      inflight = null;
-    });
+    inflight = promise;
+  }
   return inflight;
 };
 
 const invalidateBrevoCache = () => {
+  generation++;
   cached = null;
+  inflight = null;
 };
 
 // Safe for the admin UI: no key material.
@@ -95,9 +105,9 @@ const getBrevoStatus = async () => {
 
 const saveBrevoSettings = async (input: SaveBrevoInput, userId: string) => {
   const parsed = saveInputSchema.safeParse(input);
-  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Invalid Brevo settings.");
+  if (!parsed.success) throw new UserFacingError(parsed.error.issues[0]?.message ?? "Invalid Brevo settings.");
   const { apiKey, clearApiKey, senderEmail, senderName } = parsed.data;
-  if (apiKey && clearApiKey) throw new Error("Provide a new API key or clear it, not both.");
+  if (apiKey && clearApiKey) throw new UserFacingError("Provide a new API key or clear it, not both.");
 
   const keyFields = apiKey
     ? await encrypt(apiKey).then(({ ciphertext, iv }) => ({ apiKeyCiphertext: ciphertext, apiKeyIv: iv }))

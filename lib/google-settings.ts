@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { googleAuthSettingTable } from "@/db/schema";
+import { UserFacingError } from "@/lib/action-error";
 import { decrypt, encrypt } from "@/lib/crypto";
 
 // Google OAuth client stored in the DB (secret encrypted with CRYPTO_KEY, like
@@ -72,14 +73,14 @@ const getGoogleAuthStatus = async () => {
 const saveGoogleAuthSettings = async (input: SaveGoogleAuthInput, userId: string) => {
   const parsed = saveInputSchema.safeParse(input);
   if (!parsed.success) {
-    throw new Error(parsed.error.issues[0]?.message ?? "Invalid Google settings.");
+    throw new UserFacingError(parsed.error.issues[0]?.message ?? "Invalid Google settings.");
   }
   const { clientId, clientSecret, clearSecret, enabled } = parsed.data;
-  if (clientSecret && clearSecret) throw new Error("Provide a new secret or clear it, not both.");
+  if (clientSecret && clearSecret) throw new UserFacingError("Provide a new secret or clear it, not both.");
 
   const existing = await readGoogleAuthRow();
   const willHaveSecret = clientSecret ? true : clearSecret ? false : Boolean(existing?.secretCiphertext);
-  if (enabled && !willHaveSecret) throw new Error("Set a client secret before enabling Google sign-in.");
+  if (enabled && !willHaveSecret) throw new UserFacingError("Set a client secret before enabling Google sign-in.");
 
   const secretFields = clientSecret
     ? await encrypt(clientSecret).then(({ ciphertext, iv }) => ({
