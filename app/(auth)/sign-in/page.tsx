@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { SignIn } from "@/components/sign-in";
 import { getSafeRedirect } from "@/lib/auth-redirect";
+import { getGoogleClientId, isGoogleAuthEnabled } from "@/lib/google-auth";
 
 export default async function Page({
   searchParams,
@@ -18,6 +19,6 @@ export default async function Page({
   if (session?.user) return redirect(safeRedirect === "/sign-in" ? "/" : safeRedirect);
 
 	return (
-    <SignIn/>
+    <SignIn googleClientId={isGoogleAuthEnabled() ? getGoogleClientId() : null} />
   );
 }

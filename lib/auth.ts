@@ -1,7 +1,8 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
-import { emailOTP } from "better-auth/plugins";
+import { APIError } from "better-auth/api";
+import { emailOTP, oneTap } from "better-auth/plugins";
 import { db } from "@/db";
 import * as schema from "@/db/schema";
 import { getBaseUrl } from "@/lib/base-url";
@@ -11,6 +12,9 @@ import { syncGithubProfileOnLogin } from "@/lib/github-account";
 import { bindCollaboratorInvitesToUser } from "@/lib/collaborator-access";
 import { LoginEmailTemplate } from "@/components/email/login";
 import { render } from "@react-email/render";
+import { getGoogleClientId, isEmailAllowedToSignUp, isGoogleAuthEnabled, isGoogleSignIn } from "@/lib/google-auth";
+
+const googleEnabled = isGoogleAuthEnabled();
 
 export const auth = betterAuth({
   baseURL: getBaseUrl(),
@@ -27,13 +31,19 @@ export const auth = betterAuth({
   account: {
     accountLinking: {
       enabled: true,
-      trustedProviders: ["github"],
+      trustedProviders: googleEnabled ? ["github", "google"] : ["github"],
       disableImplicitLinking: false,
       updateUserInfoOnLink: true,
       allowUnlinkingAll: false,
     },
   },
   socialProviders: {
+    ...(googleEnabled && {
+      google: {
+        clientId: getGoogleClientId() as string,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+      },
+    }),
     github: {
       clientId: process.env.GITHUB_APP_CLIENT_ID as string,
       clientSecret: process.env.GITHUB_APP_CLIENT_SECRET as string,
@@ -111,6 +121,19 @@ export const auth = betterAuth({
     },
   }),
   databaseHooks: {
+    user: {
+      create: {
+        // Google must not open sign-up to everyone: a new user is only created
+        // for an admin, collaborator or invited email. Existing users link.
+        before: async (user, context) => {
+          if (!googleEnabled || !isGoogleSignIn(context)) return;
+          if (await isEmailAllowedToSignUp(user.email)) return;
+          throw new APIError("FORBIDDEN", {
+            message: "This Google account has not been invited to Pages CMS.",
+          });
+        },
+      },
+    },
     session: {
       create: {
         after: async (session) => {
@@ -155,6 +178,7 @@ export const auth = betterAuth({
   },
   plugins: [
     nextCookies(),
+    ...(googleEnabled ? [oneTap({ clientId: getGoogleClientId() as string })] : []),
     emailOTP({
       expiresIn: 300,
       otpLength: 6,
