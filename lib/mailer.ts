@@ -1,5 +1,7 @@
 import { Resend } from "resend";
 import nodemailer from "nodemailer";
+import { sendViaBrevo } from "@/lib/brevo";
+import { getBrevoConfig } from "@/lib/brevo-settings";
 
 type MailProvider = "resend" | "smtp";
 
@@ -92,6 +94,20 @@ const getSmtpTransporter = () => {
 export const sendEmail = async ({ to, subject, html, text }: SendEmailInput) => {
   const recipients = Array.isArray(to) ? to : [to];
   if (recipients.length === 0) throw new Error("At least one recipient is required.");
+
+  // Brevo configured in Settings wins over the env providers.
+  const brevo = await getBrevoConfig();
+  if (brevo) {
+    await sendViaBrevo({
+      apiKey: brevo.apiKey,
+      sender: { email: brevo.senderEmail, name: brevo.senderName },
+      to: recipients,
+      subject,
+      html,
+      text,
+    });
+    return;
+  }
 
   const from = getFromEmail();
   const provider = getEmailProvider();

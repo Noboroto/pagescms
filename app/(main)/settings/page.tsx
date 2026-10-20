@@ -6,6 +6,8 @@ import { db } from "@/db";
 import { accountTable } from "@/db/schema";
 import { isRepoOwnerUser } from "@/lib/repo-owner";
 import { getGoogleAuthStatus } from "@/lib/google-settings";
+import { getBrevoStatus } from "@/lib/brevo-settings";
+import { BrevoMailSettings } from "@/components/settings/brevo-mail";
 import { getBaseUrl } from "@/lib/base-url";
 import { GoogleSignInSettings } from "@/components/settings/google-sign-in";
 import { MainRootLayout } from "../main-root-layout";
@@ -44,6 +46,7 @@ export default async function Page() {
   // Sign-in provider settings: repo owner only (GitHub account with the App installed).
   const isOwner = githubConnected && (await isRepoOwnerUser(user.id));
   const googleStatus = isOwner ? await getGoogleAuthStatus() : null;
+  const brevoStatus = isOwner ? await getBrevoStatus() : null;
   const baseUrl = getBaseUrl().replace(/\/+$/, "");
 
   return (
@@ -104,6 +107,25 @@ export default async function Page() {
                   initialEnabled={googleStatus.enabled}
                   origin={new URL(baseUrl).origin}
                   redirectUri={`${baseUrl}/api/auth/callback/google`}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {brevoStatus && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Email (Brevo)</CardTitle>
+                <CardDescription>
+                  Transactional email for sign-in codes and invitations. Only you, as the repository owner, can see this.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <BrevoMailSettings
+                  apiKeySet={brevoStatus.apiKeySet}
+                  initialSenderEmail={brevoStatus.senderEmail}
+                  initialSenderName={brevoStatus.senderName}
+                  ownerEmail={user.email}
                 />
               </CardContent>
             </Card>

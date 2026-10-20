@@ -23,3 +23,21 @@ GitHub App installation (`GET /app/installations`). Google / email-OTP-only user
 | `.env.local.example` | Notes that Google is configured in Settings. |
 
 Note: the `auth:generate` script (Better Auth CLI) expects an exported `auth`; it is not used by the app.
+
+## Brevo email from Settings
+
+Repo owner sets a Brevo transactional API key + verified sender (Settings, "Email (Brevo)" card; write-only
+key, "Send test email"). Stored in `brevo_mail_setting`, key encrypted with `CRYPTO_KEY`, cached 15s.
+When configured it is used for all outgoing mail (`lib/mailer.ts`, POST `https://api.brevo.com/v3/smtp/email`);
+otherwise the env `EMAIL_PROVIDER` / `RESEND_*` / `SMTP_*` providers are used unchanged. Brevo > Security >
+Authorized IPs must not block the key (Vercel has no fixed IP).
+
+| File | Why |
+| --- | --- |
+| `db/schema.ts`, `db/migrations/*brevo_mail_setting*` | `brevo_mail_setting` single-row table. |
+| `lib/brevo.ts` (new) | Brevo HTTP client (status + code only in errors). |
+| `lib/brevo-settings.ts` (new) | Validate / encrypt / save / cached read. |
+| `lib/require-repo-owner.ts` (new) | Shared owner gate for the settings actions. |
+| `lib/actions/brevo-settings.ts` (new) | Save + test-email server actions (owner only). |
+| `components/settings/brevo-mail.tsx` (new), `app/(main)/settings/page.tsx` | UI card. |
+| `lib/mailer.ts` | Prefers DB-configured Brevo over env providers. |

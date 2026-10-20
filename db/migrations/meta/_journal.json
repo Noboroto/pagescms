@@ -99,6 +99,13 @@
       "when": 1792490737296,
       "tag": "0013_google_auth_setting",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792490796662,
+      "tag": "0014_brevo_mail_setting",
+      "breakpoints": true
     }
   ]
 }

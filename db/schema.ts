@@ -89,6 +89,17 @@ const googleAuthSettingTable = pgTable("google_auth_setting", {
   updatedAt: timestamp("updated_at").notNull().defaultNow()
 });
 
+// Single row (id = 1): Brevo transactional email configured from the settings UI.
+const brevoMailSettingTable = pgTable("brevo_mail_setting", {
+  id: integer("id").primaryKey().default(1),
+  apiKeyCiphertext: text("api_key_ciphertext"),
+  apiKeyIv: text("api_key_iv"),
+  senderEmail: text("sender_email"),
+  senderName: text("sender_name"),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow()
+});
+
 const collaboratorTable = pgTable("collaborator", {
   id: serial("id").primaryKey(),
   type: text("type").notNull(),
@@ -229,6 +240,7 @@ export {
   verificationTable,
   githubInstallationTokenTable,
   googleAuthSettingTable,
+  brevoMailSettingTable,
   collaboratorTable,
   collaboratorInviteTable,
   configTable,
