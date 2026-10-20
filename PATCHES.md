@@ -52,3 +52,19 @@ Authorized IPs must not block the key (Vercel has no fixed IP).
 | `lib/actions/brevo-settings.ts` (new) | Save + test-email server actions (owner only). |
 | `components/settings/brevo-mail.tsx` (new), `app/(main)/settings/page.tsx` | UI card. |
 | `lib/mailer.ts` | Prefers DB-configured Brevo over env providers. |
+
+## Action payload size guard
+
+GitHub caps each `workflow_dispatch` input at 65,535 characters; the actions API sends the whole run payload
+(`JSON.stringify` of `buildActionPayload`, including the entry in `context.data.content`) as `inputs.payload`.
+The entry editor shows a live (debounced) `n / 65,535 characters` badge when the file/collection has entry/file
+actions: warning style at >= 90%, error style plus disabled action buttons (tooltip explains) when over. Saving is
+never blocked. The actions POST route rejects an over-limit payload with a clear 413 message before dispatching.
+
+| File | Why |
+| --- | --- |
+| `lib/actions.ts` | `ACTION_PAYLOAD_MAX_LENGTH`, `buildActionPayload` (shared by route and editor so both measure the same shape). |
+| `app/api/[owner]/[repo]/[branch]/actions/route.ts` | Uses `buildActionPayload`; length guard before DB insert / dispatch. |
+| `components/entry/entry-form.tsx` | `onValuesChange` prop (react-hook-form `subscribe`). |
+| `components/entry/entry.tsx` | Counter badge, warning/error notice, passes `disabledReason`. |
+| `components/repo/repo-action-buttons.tsx` | `disabledReason` prop: disabled buttons with tooltip. |

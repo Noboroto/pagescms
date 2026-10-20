@@ -8,7 +8,9 @@ import { useConfig } from "@/contexts/config-context";
 import { parseAndValidateConfig } from "@/lib/config";
 import { resolveContentOperations } from "@/lib/operations";
 import { requireApiSuccess } from "@/lib/api-client";
-import { getSchemaActions } from "@/lib/actions";
+import { ACTION_PAYLOAD_MAX_LENGTH, buildActionPayload, getSchemaActions, resolveActionRef } from "@/lib/actions";
+import { useUser } from "@/contexts/user-context";
+import { Badge } from "@/components/ui/badge";
 import {
   generateFilename,
   getPrimaryField,
@@ -603,6 +605,73 @@ export function Entry({
   }, [config.branch, config.owner, config.repo, displayTitle, name, path, schema, schemaType]);
   const isCreationBlocked = !path && schemaType === "collection" && !canCreate;
   const showHeaderActions = error !== "Not found" && !isCreationBlocked;
+  const { user } = useUser();
+  const payloadActions = useMemo(() => {
+    if (!schema || !path) return [];
+    if (schemaType === "file") return getSchemaActions(schema);
+    if (schemaType === "collection" && entry) return getSchemaActions(schema, "entry");
+    return [];
+  }, [entry, path, schema, schemaType]);
+  const [liveContent, setLiveContent] = useState<Record<string, unknown> | null>(null);
+  const liveContentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleValuesChange = useCallback((values: Record<string, unknown>) => {
+    if (liveContentTimerRef.current) clearTimeout(liveContentTimerRef.current);
+    liveContentTimerRef.current = setTimeout(() => setLiveContent(values), 400);
+  }, []);
+  useEffect(() => () => {
+    if (liveContentTimerRef.current) clearTimeout(liveContentTimerRef.current);
+  }, []);
+  useEffect(() => {
+    if (liveContentTimerRef.current) clearTimeout(liveContentTimerRef.current);
+    setLiveContent(null);
+  }, [entry]);
+
+  // Same payload shape the actions API sends as `inputs.payload`; the longest action wins.
+  const payloadLength = useMemo(() => {
+    if (payloadActions.length === 0) return 0;
+    const content = liveContent ?? entry?.contentObject ?? null;
+    return Math.max(...payloadActions.map((action) => JSON.stringify(buildActionPayload({
+      action,
+      repository: {
+        owner: config.owner,
+        repo: config.repo,
+        ref: config.branch,
+        workflowRef: resolveActionRef(action.ref, config.branch),
+        sha: "0".repeat(40),
+      },
+      triggeredAt: new Date().toISOString(),
+      triggeredBy: {
+        userId: user?.id ?? "",
+        name: user?.name ?? "",
+        email: user?.email ?? "",
+        githubUsername: user?.githubUsername ?? null,
+        image: user?.image ?? null,
+      },
+      context: {
+        kind: schemaType === "file" ? "file" : "entry",
+        name: schema?.name,
+        path,
+        data: {
+          label: schema?.label || schema?.name,
+          ...(schemaType === "file" ? {} : { entryName: entry?.name ?? null }),
+          sha: sha ?? null,
+          content,
+        },
+      },
+    })).length));
+  }, [config.branch, config.owner, config.repo, entry, liveContent, path, payloadActions, schema, schemaType, sha, user]);
+  const payloadLimitState = payloadActions.length === 0
+    ? "hidden"
+    : payloadLength > ACTION_PAYLOAD_MAX_LENGTH
+      ? "error"
+      : payloadLength >= ACTION_PAYLOAD_MAX_LENGTH * 0.9
+        ? "warning"
+        : "ok";
+  const payloadLimitText = `${ACTION_PAYLOAD_MAX_LENGTH.toLocaleString("en-US")} characters`;
+  const payloadWarning = `This entry is close to the ${payloadLimitText} limit: ${payloadActions.map((action) => `"${action.label}"`).join(", ")} may fail. Shorten the entry or split it.`;
+  const payloadDisabledReason = payloadLimitState === "error"
+    ? `This entry is over the ${payloadLimitText} GitHub limit for workflow inputs. Shorten or split it to run actions (saving still works).`
+    : undefined;
   const headerActionsNode = useMemo(() => {
     if (!schema || !path) return null;
 
@@ -616,6 +685,7 @@ export function Entry({
           owner={config.owner}
           repo={config.repo}
           refName={config.branch}
+          disabledReason={payloadDisabledReason}
           contextType="file"
           contextName={schema.name}
           contextPath={path}
@@ -638,6 +708,7 @@ export function Entry({
           owner={config.owner}
           repo={config.repo}
           refName={config.branch}
+          disabledReason={payloadDisabledReason}
           contextType="entry"
           contextName={schema.name}
           contextPath={path}
@@ -652,7 +723,7 @@ export function Entry({
     }
 
     return null;
-  }, [config.branch, config.owner, config.repo, entry, path, schema, schemaType, sha]);
+  }, [config.branch, config.owner, config.repo, entry, path, payloadDisabledReason, schema, schemaType, sha]);
 
   const headerNode = useMemo(() => (
     <div className="flex min-w-0 items-center gap-2">
@@ -666,6 +737,23 @@ export function Entry({
       </div>
       {showHeaderActions && (
         <div className="flex shrink-0 items-center gap-x-2">
+          {payloadLimitState !== "hidden" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge
+                  variant={payloadLimitState === "error" ? "destructive" : "outline"}
+                  className={payloadLimitState === "warning" ? "border-amber-500 text-amber-600 dark:text-amber-400" : undefined}
+                >
+                  {payloadLength.toLocaleString("en-US")} / {ACTION_PAYLOAD_MAX_LENGTH.toLocaleString("en-US")} characters
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-64">
+                {payloadLimitState === "ok"
+                  ? `Size of the data sent to GitHub when an action runs (limit ${payloadLimitText}).`
+                  : payloadDisabledReason ?? payloadWarning}
+              </TooltipContent>
+            </Tooltip>
+          )}
           {headerActionsNode}
           {path && (
             historyData && historyData.length > 0 && !isLoading
@@ -730,7 +818,7 @@ export function Entry({
         </div>
       )}
     </div>
-  ), [breadcrumbNode, canDelete, canRename, filenameChanged, filenameFieldMode, filenameValue, handleDelete, handleRename, hasRegisteredChanges, headerActionsNode, headerMeta, historyData, isBusy, isFilenameUnlocked, isFormDirty, isLoading, name, path, schemaType, sha, showFilenameField, showHeaderActions]);
+  ), [breadcrumbNode, canDelete, canRename, filenameChanged, filenameFieldMode, filenameValue, handleDelete, handleRename, hasRegisteredChanges, headerActionsNode, headerMeta, historyData, payloadLength, payloadLimitState, payloadDisabledReason, payloadWarning, payloadLimitText, isBusy, isFilenameUnlocked, isFormDirty, isLoading, name, path, schemaType, sha, showFilenameField, showHeaderActions]);
 
   useRepoHeader({ header: headerNode });
 
@@ -840,7 +928,16 @@ export function Entry({
   return (
     isLoading
       ? loadingSkeleton
-      : <EntryForm
+      : <>
+      {(payloadLimitState === "warning" || payloadLimitState === "error") && (
+        <p
+          role="status"
+          className={`mx-auto mb-4 w-full max-w-screen-md rounded-md border px-3 py-2 text-sm ${payloadLimitState === "error" ? "border-destructive text-destructive" : "border-amber-500 text-amber-600 dark:text-amber-400"}`}
+        >
+          {payloadLimitState === "error" ? payloadDisabledReason : payloadWarning}
+        </p>
+      )}
+      <EntryForm
         fields={entryFields}
         contentObject={entryContentObject}
         onSubmit={onSubmit}
@@ -880,10 +977,12 @@ export function Entry({
             : undefined
         }
         onDirtyChange={setIsFormDirty}
+        onValuesChange={handleValuesChange}
         onChangeRegistered={() => {
           changeVersionRef.current += 1;
           setHasRegisteredChanges(true);
         }}
       />
+      </>
   );
 };

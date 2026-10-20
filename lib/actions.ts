@@ -54,6 +54,44 @@ export const resolveActionRef = (
   currentRef: string,
 ) => (!ref || ref === "current" ? currentRef : ref);
 
+/** GitHub rejects workflow_dispatch inputs longer than this many characters. */
+export const ACTION_PAYLOAD_MAX_LENGTH = 65535;
+
+type ActionPayloadParts = {
+  action: Pick<RepoActionConfig, "name" | "label" | "cancelable">;
+  repository: { owner: string; repo: string; ref: string; workflowRef: string; sha: string };
+  triggeredAt: string;
+  triggeredBy: {
+    userId: string;
+    name: string;
+    email: string;
+    githubUsername: string | null;
+    image: string | null;
+  };
+  context: { kind: string; name?: string | null; path?: string | null; data?: Record<string, unknown> | null };
+  inputs?: Record<string, string | number | boolean> | null;
+};
+
+/** Single source of truth for the object sent as `inputs.payload` to workflow_dispatch. */
+export const buildActionPayload = (parts: ActionPayloadParts) => ({
+  source: "pages-cms",
+  action: {
+    name: parts.action.name,
+    label: parts.action.label,
+    cancelable: parts.action.cancelable !== false,
+  },
+  repository: parts.repository,
+  triggeredAt: parts.triggeredAt,
+  triggeredBy: parts.triggeredBy,
+  context: {
+    type: parts.context.kind,
+    name: parts.context.name ?? null,
+    path: parts.context.path ?? null,
+    data: parts.context.data ?? {},
+  },
+  inputs: parts.inputs ?? {},
+});
+
 export const getRootActions = (configObject: any): RepoActionConfig[] => {
   return Array.isArray(configObject?.actions) ? configObject.actions : [];
 };

@@ -49,6 +49,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -67,6 +68,8 @@ type RepoActionButtonsProps = {
   contextPath?: string | null;
   contextData?: Record<string, unknown>;
   layout?: "header" | "sidebar";
+  /** When set, the action buttons are disabled and this text explains why. */
+  disabledReason?: string;
 };
 
 const getRunIcon = (run: ActionRunSummary | null | undefined) => {
@@ -137,6 +140,7 @@ export function RepoActionButtons({
   contextPath = null,
   contextData = {},
   layout = "header",
+  disabledReason,
 }: RepoActionButtonsProps) {
   const { user } = useUser();
   const { trackActionRun } = useActionToasts();
@@ -477,16 +481,30 @@ export function RepoActionButtons({
 
         return (
           <ButtonGroup key={action.name}>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isBusy}
-              onClick={() => handleActionClick(action)}
-              className="gap-2"
-            >
-              {getPrimaryIcon(isBusy)}
-              <span>{action.label}</span>
-            </Button>
+            {disabledReason ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0}>
+                    <Button type="button" variant="outline" disabled className="gap-2 rounded-r-none">
+                      {getPrimaryIcon(false)}
+                      <span>{action.label}</span>
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-64">{disabledReason}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isBusy}
+                onClick={() => handleActionClick(action)}
+                className="gap-2"
+              >
+                {getPrimaryIcon(isBusy)}
+                <span>{action.label}</span>
+              </Button>
+            )}
             {renderRunHistory(action, runs)}
           </ButtonGroup>
         );

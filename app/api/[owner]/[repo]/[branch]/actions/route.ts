@@ -5,7 +5,7 @@ import { createOctokitInstance } from "@/lib/utils/octokit";
 import { getToken } from "@/lib/token";
 import { createHttpError, toErrorResponse } from "@/lib/api-error";
 import { requireApiUserSession } from "@/lib/session-server";
-import { resolveActionRef } from "@/lib/actions";
+import { ACTION_PAYLOAD_MAX_LENGTH, buildActionPayload, resolveActionRef } from "@/lib/actions";
 import { hasGithubIdentity } from "@/lib/authz-shared";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -376,13 +376,8 @@ export async function POST(
     const workflowRef = resolveActionRef(action.ref, params.branch);
     const sha = await resolveWorkflowSha(octokit, params.owner, params.repo, workflowRef);
     const timestamp = new Date();
-    const payload = {
-      source: "pages-cms",
-      action: {
-        name: action.name,
-        label: action.label,
-        cancelable: action.cancelable !== false,
-      },
+    const payload = buildActionPayload({
+      action: { name: action.name, label: action.label, cancelable: action.cancelable },
       repository: {
         owner: params.owner,
         repo: params.repo,
@@ -398,14 +393,16 @@ export async function POST(
         githubUsername: user.githubUsername ?? null,
         image: user.image ?? null,
       },
-      context: {
-        type: actionContext.kind,
-        name: actionContext.name ?? null,
-        path: actionContext.path ?? null,
-        data: actionContext.data ?? {},
-      },
-      inputs: body.inputs ?? {},
-    };
+      context: actionContext as { kind: string; name?: string | null; path?: string | null; data?: Record<string, unknown> },
+      inputs: body.inputs,
+    });
+    const serializedPayload = JSON.stringify(payload);
+    if (serializedPayload.length > ACTION_PAYLOAD_MAX_LENGTH) {
+      throw createHttpError(
+        `Action payload is ${serializedPayload.length.toLocaleString("en-US")} characters, over GitHub's ${ACTION_PAYLOAD_MAX_LENGTH.toLocaleString("en-US")} character limit for workflow inputs. Shorten the content and try again.`,
+        413,
+      );
+    }
 
     const [createdRun] = await db.insert(actionRunTable).values({
       owner: params.owner,
@@ -431,7 +428,7 @@ export async function POST(
       workflow_id: action.workflow,
       ref: workflowRef,
       inputs: {
-        payload: JSON.stringify(payload),
+        payload: serializedPayload,
       },
     });
 
