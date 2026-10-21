@@ -539,6 +539,21 @@ const ContentLeafSchema = z
       }),
     operations: ContentOperationsSchema.optional(),
     filename: FilenameConfigSchema.optional().nullable(),
+    templates: z
+      .array(
+        z
+          .object({
+            label: z.string({ required_error: "Template 'label' is required." }),
+            path: z
+              .string({ required_error: "Template 'path' is required." })
+              .regex(/^[^/].*[^/]$/, {
+                message: "Template 'path' must be a relative file path (no leading or trailing slash).",
+              }),
+          })
+          .strict(),
+        { message: "'templates' must be an array of { label, path }." },
+      )
+      .optional(),
     exclude: z
       .array(
         z.string({

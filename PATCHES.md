@@ -96,3 +96,23 @@ bytes, so large media is not capped by the Vercel response size limit. The brows
 | --- | --- |
 | `app/api/[owner]/[repo]/[branch]/files/[path]/route.ts` | `GET` handler + `isWithin` path check. |
 | `components/file/file-options.tsx` | Download menu item. |
+
+## Import a file into the editor, download collection templates
+
+"Import from file" button in the entry editor (content collections and files with fields): reads a local file with
+`parseEntryContent` (the entries API's parser, moved to `lib/entry-content.ts` so both apply the same field `read`
+transforms) and resets the form to those values while keeping the saved defaults, so the form is dirty and nothing is
+committed until Save. For a new entry the filename is regenerated from the imported values.
+
+Optional collection key `templates: [{ label, path }]` (any repo path) adds a "Templates" download menu to the
+collection page (accepted on `type: file` too, but only collections show the menu).
+`GET .../files/[path]?type=template&name=<collection>` only serves paths listed there.
+
+| File | Why |
+| --- | --- |
+| `lib/entry-content.ts` (new), `app/api/[owner]/[repo]/[branch]/entries/[path]/route.ts` | Shared parser. |
+| `components/entry/entry.tsx`, `components/entry/entry-form.tsx` | Import button, `importedContent` prop. |
+| `lib/config-schema.ts` | `templates` on content schemas. |
+| `lib/download-file.ts` (new), `components/file/file-options.tsx` | Shared blob download. |
+| `components/collection/collection-templates.tsx` (new), `components/collection/collection.tsx` | Templates menu. |
+| `app/api/[owner]/[repo]/[branch]/files/[path]/route.ts` | `template` type. |

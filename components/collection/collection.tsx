@@ -33,6 +33,7 @@ import { requireApiSuccess } from "@/lib/api-client";
 import { EmptyCreate } from "@/components/empty-create";
 import { FileOptions } from "@/components/file/file-options";
 import { CollectionTable } from "./collection-table";
+import { CollectionTemplates } from "./collection-templates";
 import { FolderCreate } from "@/components/folder-create";
 import { resolveContentOperations } from "@/lib/operations";
 import { useRepoHeader } from "@/components/repo/repo-header-context";
@@ -927,21 +928,28 @@ export function Collection({ name, path }: { name: string; path?: string }) {
         <CollectionHeaderActions
           addEntryHref={addEntryHref}
           actionNode={
-            collectionActions.length > 0 ? (
-              <RepoActionButtons
-                actions={collectionActions}
-                owner={config.owner}
-                repo={config.repo}
-                refName={config.branch}
-                contextType="collection"
-                contextName={schema.name}
-                contextPath={collectionPath}
-                contextData={{
-                  label: schema.label || schema.name,
-                  rootPath: schema.path,
-                  format: schema.format ?? null,
-                }}
-              />
+            collectionActions.length > 0 || schema.templates?.length > 0 ? (
+              <>
+                {schema.templates?.length > 0 && (
+                  <CollectionTemplates name={schema.name} templates={schema.templates} />
+                )}
+                {collectionActions.length > 0 && (
+                  <RepoActionButtons
+                    actions={collectionActions}
+                    owner={config.owner}
+                    repo={config.repo}
+                    refName={config.branch}
+                    contextType="collection"
+                    contextName={schema.name}
+                    contextPath={collectionPath}
+                    contextData={{
+                      label: schema.label || schema.name,
+                      rootPath: schema.path,
+                      format: schema.format ?? null,
+                    }}
+                  />
+                )}
+              </>
             ) : undefined
           }
           collectionPath={collectionPath}
@@ -970,6 +978,7 @@ export function Collection({ name, path }: { name: string; path?: string }) {
       schema.name,
       schema.path,
       schema.subfolders,
+      schema.templates,
     ],
   );
 

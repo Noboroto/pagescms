@@ -19,7 +19,7 @@ import { getRepoReadContext } from "@/lib/api-repo-context";
 /**
  * Create, update and delete individual files in a GitHub repository.
  * 
- * GET /api/[owner]/[repo]/[branch]/files/[path]?type=[content|media|settings]&name=[schemaName]
+ * GET /api/[owner]/[repo]/[branch]/files/[path]?type=[content|media|template|settings]&name=[schemaName]
  * POST /api/[owner]/[repo]/[branch]/files/[path]
  * DELETE /api/[owner]/[repo]/[branch]/files/[path]
  * 
@@ -494,12 +494,21 @@ export async function GET(
         ) throw createHttpError(`Invalid extension "${getFileExtension(normalizedPath)}" for media.`, 400);
         break;
       }
+      case "template": {
+        if (!name) throw createHttpError(`"name" is required for templates.`, 400);
+        const schema = getSchemaByName(config.object, name);
+        if (!schema) throw createHttpError(`Content schema not found for ${name}.`, 404);
+        // Only files listed in the schema's `templates`, wherever they live in the repo.
+        const listed = (schema.templates ?? []).some((template: { path: string }) => normalizePath(template.path) === normalizedPath);
+        if (!listed) throw createHttpError(`"${params.path}" is not a template of "${name}".`, 400);
+        break;
+      }
       case "settings":
         if (normalizedPath !== ".pages.yml") throw createHttpError(`Invalid path "${params.path}" for settings.`, 400);
         assertGithubIdentity(user, "Only GitHub users can access settings.");
         break;
       default:
-        throw createHttpError(`"type" is required and must be "content", "media" or "settings".`, 400);
+        throw createHttpError(`"type" is required and must be "content", "media", "template" or "settings".`, 400);
     }
 
     const octokit = createOctokitInstance(token);

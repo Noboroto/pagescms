@@ -8,6 +8,7 @@ import { useConfig } from "@/contexts/config-context";
 import { parseAndValidateConfig } from "@/lib/config";
 import { resolveContentOperations } from "@/lib/operations";
 import { requireApiSuccess } from "@/lib/api-client";
+import { parseEntryContent } from "@/lib/entry-content";
 import { ACTION_PAYLOAD_MAX_LENGTH, buildActionPayload, getSchemaActions, resolveActionRef } from "@/lib/actions";
 import { useUser } from "@/contexts/user-context";
 import { Badge } from "@/components/ui/badge";
@@ -65,7 +66,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner";
-import { EllipsisVertical, History, Lock, LockOpen, Save } from "lucide-react";
+import { EllipsisVertical, FileUp, History, Lock, LockOpen, Save } from "lucide-react";
 import useSWR, { useSWRConfig } from "swr";
 
 type LintView = {
@@ -153,6 +154,8 @@ export function Entry({
     return false;
   }, [filenameFieldMode, path, schemaType]);
   const [filenameValue, setFilenameValue] = useState("");
+  const [importedContent, setImportedContent] = useState<{ values: Record<string, unknown>; version: number } | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [isFilenameUnlocked, setIsFilenameUnlocked] = useState(false);
   
   const entryFields = useMemo(() => {
@@ -725,6 +728,27 @@ export function Entry({
     return null;
   }, [config.branch, config.owner, config.repo, entry, path, payloadDisabledReason, schema, schemaType, sha]);
 
+  const canImport = Boolean(schema?.fields?.length) && path !== ".pages.yml";
+
+  const handleImportFile = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !schema) return;
+    try {
+      const values = parseEntryContent(await file.text(), schema, config) as Record<string, unknown>;
+      setImportedContent({
+        values: schema.list === true ? { listWrapper: values } : values,
+        version: Date.now(),
+      });
+      if (!path && showFilenameField) {
+        setFilenameValue(generateFilename(schema.filename, schema, values) || "untitled");
+      }
+      toast.success(`Imported ${file.name}. Review the fields, then save.`);
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  }, [config, path, schema, showFilenameField]);
+
   const headerNode = useMemo(() => (
     <div className="flex min-w-0 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
@@ -753,6 +777,33 @@ export function Entry({
                   : payloadDisabledReason ?? payloadWarning}
               </TooltipContent>
             </Tooltip>
+          )}
+          {canImport && (
+            <>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept={schema?.extension ? `.${schema.extension}` : undefined}
+                className="hidden"
+                onChange={handleImportFile}
+              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0"
+                    disabled={isBusy}
+                    onClick={() => importInputRef.current?.click()}
+                    aria-label="Import from file"
+                  >
+                    <FileUp />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Import from file</TooltipContent>
+              </Tooltip>
+            </>
           )}
           {headerActionsNode}
           {path && (
@@ -818,7 +869,7 @@ export function Entry({
         </div>
       )}
     </div>
-  ), [breadcrumbNode, canDelete, canRename, filenameChanged, filenameFieldMode, filenameValue, handleDelete, handleRename, hasRegisteredChanges, headerActionsNode, headerMeta, historyData, payloadLength, payloadLimitState, payloadDisabledReason, payloadWarning, payloadLimitText, isBusy, isFilenameUnlocked, isFormDirty, isLoading, name, path, schemaType, sha, showFilenameField, showHeaderActions]);
+  ), [breadcrumbNode, canDelete, canImport, canRename, handleImportFile, schema?.extension, filenameChanged, filenameFieldMode, filenameValue, handleDelete, handleRename, hasRegisteredChanges, headerActionsNode, headerMeta, historyData, payloadLength, payloadLimitState, payloadDisabledReason, payloadWarning, payloadLimitText, isBusy, isFilenameUnlocked, isFormDirty, isLoading, name, path, schemaType, sha, showFilenameField, showHeaderActions]);
 
   useRepoHeader({ header: headerNode });
 
@@ -940,6 +991,7 @@ export function Entry({
       <EntryForm
         fields={entryFields}
         contentObject={entryContentObject}
+        importedContent={importedContent}
         onSubmit={onSubmit}
         filePath={
           showFilenameField

@@ -1,8 +1,7 @@
 import { type NextRequest } from "next/server";
 import { createOctokitInstance } from "@/lib/utils/octokit";
-import { readFns } from "@/fields/registry";
-import { deepMap, getSchemaByName } from "@/lib/schema";
-import { parse } from "@/lib/serialization";
+import { getSchemaByName } from "@/lib/schema";
+import { parseEntryContent } from "@/lib/entry-content";
 import { getConfig } from "@/lib/config-store";
 import { getFileExtension, normalizePath } from "@/lib/utils/file";
 import { assertGithubIdentity } from "@/lib/authz-shared";
@@ -107,9 +106,14 @@ export async function GET(
     }
 
     const content = Buffer.from(response.data.content, "base64").toString();
-    const contentObject = name
-      ? parseContent(content, schema, config)
-      : { body: content };
+    let contentObject;
+    try {
+      contentObject = name
+        ? parseEntryContent(content, schema, config)
+        : { body: content };
+    } catch (error: any) {
+      throw createHttpError(error.message, 400);
+    }
 
     return Response.json({
       status: "success",
@@ -125,53 +129,3 @@ export async function GET(
     return toErrorResponse(error);
   }
 }
-
-// Parse the entry into an object based on the content schema.
-const parseContent = (
-  content: string,
-  schema: Record<string, any>,
-  config: Record<string, any>
-) => {
-  const serializedTypes = ["yaml-frontmatter", "json-frontmatter", "toml-frontmatter", "yaml", "json", "toml"];
-  
-  let contentObject: Record<string, any> = {};
-
-  if (serializedTypes.includes(schema && schema.format) && schema.fields && schema.fields.length > 0) {
-    // If we are dealing with a serialized format and we have fields defined
-    try {
-      contentObject = parse(content, { format: schema.format, delimiters: schema.delimiters });
-      // We resort to the same trick as with the client, wrapping things in a listWrapper object if we're dealing with a list at the root
-      let entryFields;
-      if (schema.list) {
-        contentObject = { listWrapper: contentObject };
-        entryFields = [{
-          name: "listWrapper",
-          type: "object",
-          list: true,
-          fields: schema.fields
-        }]
-      } else {
-        entryFields = schema.fields;
-      }
-
-      contentObject = deepMap(
-        contentObject,
-        entryFields,
-        (value, field) => {
-          const type = field.type;
-          if (typeof type === 'string' && readFns[type]) {
-            return readFns[type](value, field, config);
-          }
-          return value;
-        }
-      );
-      if (schema.list) contentObject = contentObject.listWrapper;
-    } catch (error: any) {
-      throw createHttpError(`Error parsing frontmatter: ${error.message}`, 400);
-    }
-  } else {
-    contentObject = { body: content };
-  }
-  
-  return contentObject; 
-};

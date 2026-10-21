@@ -1035,6 +1035,7 @@ const EntryForm = ({
   onDirtyChange,
   onChangeRegistered,
   onValuesChange,
+  importedContent,
 }: {
   fields: Field[];
   contentObject?: Record<string, unknown>;
@@ -1043,6 +1044,8 @@ const EntryForm = ({
   onDirtyChange?: (isDirty: boolean) => void;
   onChangeRegistered?: () => void;
   onValuesChange?: (values: Record<string, unknown>) => void;
+  /** Values loaded from a file; `version` changes on every import so the same file can be re-applied. */
+  importedContent?: { values: Record<string, unknown>; version: number } | null;
 }) => {
   const zodSchema = useMemo(() => {
     return generateZodSchema(fields);
@@ -1061,6 +1064,15 @@ const EntryForm = ({
   useEffect(() => {
     form.reset(defaultValues);
   }, [defaultValues, form]);
+
+  // Defaults stay those of the saved entry, so an import marks the form dirty and can be saved.
+  // Each import is applied once: `fields` changes on refetch/config refresh and must not replay it.
+  const appliedImportVersion = useRef<number | null>(null);
+  useEffect(() => {
+    if (!importedContent || appliedImportVersion.current === importedContent.version) return;
+    appliedImportVersion.current = importedContent.version;
+    form.reset(initializeState(fields, sanitizeObject(importedContent.values)), { keepDefaultValues: true });
+  }, [importedContent, fields, form]);
 
   useEffect(() => {
     onDirtyChange?.(form.formState.isDirty);
