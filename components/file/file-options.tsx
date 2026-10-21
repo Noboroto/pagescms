@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useConfig } from "@/contexts/config-context";
-import { getParentPath, getRelativePath, joinPathSegments, normalizePath } from "@/lib/utils/file";
+import { getFileName, getParentPath, getRelativePath, joinPathSegments, normalizePath } from "@/lib/utils/file";
 import { getSchemaByName } from "@/lib/schema";
 import { requireApiSuccess } from "@/lib/api-client";
 import {
@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Download } from "lucide-react";
 import { FileRename } from "@/components/file/file-rename";
 
 export function FileOptions({
@@ -107,6 +107,37 @@ export function FileOptions({
     }
   };
   
+  const handleDownload = () => {
+    const downloadPromise = (async () => {
+      const params = new URLSearchParams({
+        type: (type === "collection" || type === "file") ? "content" : type
+      });
+      if (name) params.set("name", name);
+
+      const response = await fetch(`/api/${config.owner}/${config.repo}/${encodeURIComponent(config.branch)}/files/${encodeURIComponent(normalizedPath)}?${params.toString()}`);
+      const data = await requireApiSuccess<any>(response, "Failed to download file");
+
+      // Fetched as a blob: the `download` attribute is ignored for cross-origin links.
+      const fileResponse = await fetch(data.data.url);
+      if (!fileResponse.ok) throw new Error(`Failed to download file (${fileResponse.status}).`);
+      const objectUrl = URL.createObjectURL(await fileResponse.blob());
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = data.data.name || getFileName(normalizedPath);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Safari may still be reading the blob after click(); revoking right away can empty the download.
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    })();
+
+    toast.promise(downloadPromise, {
+      loading: `Downloading ${path}`,
+      success: `Downloaded ${getFileName(normalizedPath)}`,
+      error: (error: any) => error.message,
+    });
+  };
+
   return (
     <>
       <AlertDialog>
@@ -120,6 +151,10 @@ export function FileOptions({
                 View on GitHub
                 <ArrowUpRight className="size-3 text-muted-foreground ml-auto" />
               </a>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={handleDownload}>
+              Download
+              <Download className="size-3 text-muted-foreground ml-auto" />
             </DropdownMenuItem>
             {(showRename || showDelete)
               ? <>

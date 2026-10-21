@@ -14,10 +14,12 @@ import { createHttpError, toErrorResponse } from "@/lib/api-error";
 import mergeWith from "lodash.mergewith";
 import { buildCommitTokens, resolveCommitIdentity, resolveCommitMessage } from "@/lib/commit-message";
 import { requireApiUserSession } from "@/lib/session-server";
+import { getRepoReadContext } from "@/lib/api-repo-context";
 
 /**
  * Create, update and delete individual files in a GitHub repository.
  * 
+ * GET /api/[owner]/[repo]/[branch]/files/[path]?type=[content|media|settings]&name=[schemaName]
  * POST /api/[owner]/[repo]/[branch]/files/[path]
  * DELETE /api/[owner]/[repo]/[branch]/files/[path]
  * 
@@ -445,6 +447,91 @@ const githubSaveFile = async (
     throw error;
   }
 };
+
+// Path is the root itself or below it ("src/news" must not match "src/news-old/x.md").
+const isWithin = (path: string, root: string) => {
+  const base = normalizePath(root || "");
+  return base === "" || path === base || path.startsWith(`${base}/`);
+};
+
+/**
+ * Resolves a short-lived raw URL for downloading a file. Returns a URL instead of the bytes so
+ * large media is not capped by the serverless response size; raw.githubusercontent.com sends
+ * `Access-Control-Allow-Origin: *`, so the browser can fetch it as a blob.
+ */
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ owner: string, repo: string, branch: string, path: string }> }
+) {
+  try {
+    const params = await context.params;
+    const { user, token, config } = await getRepoReadContext(params);
+
+    const searchParams = request.nextUrl.searchParams;
+    const type = searchParams.get("type");
+    const name = searchParams.get("name");
+    const normalizedPath = normalizePath(params.path);
+
+    switch (type) {
+      case "content": {
+        if (!name) throw createHttpError(`"name" is required for content.`, 400);
+        const schema = getSchemaByName(config.object, name);
+        if (!schema) throw createHttpError(`Content schema not found for ${name}.`, 404);
+        if (!isWithin(normalizedPath, schema.path)) throw createHttpError(`Invalid path "${params.path}" for content "${name}".`, 400);
+        if (getFileExtension(normalizedPath) !== (schema.extension ?? "")) {
+          throw createHttpError(`Invalid extension "${getFileExtension(normalizedPath)}" for content "${name}".`, 400);
+        }
+        break;
+      }
+      case "media": {
+        if (!name) throw createHttpError(`"name" is required for media.`, 400);
+        const schema = getSchemaByName(config.object, name, "media");
+        if (!schema) throw createHttpError(`Media schema not found for ${name}.`, 404);
+        if (!isWithin(normalizedPath, schema.input)) throw createHttpError(`Invalid path "${params.path}" for media "${name}".`, 400);
+        if (
+          schema.extensions?.length > 0 &&
+          !schema.extensions.includes(getFileExtension(normalizedPath))
+        ) throw createHttpError(`Invalid extension "${getFileExtension(normalizedPath)}" for media.`, 400);
+        break;
+      }
+      case "settings":
+        if (normalizedPath !== ".pages.yml") throw createHttpError(`Invalid path "${params.path}" for settings.`, 400);
+        assertGithubIdentity(user, "Only GitHub users can access settings.");
+        break;
+      default:
+        throw createHttpError(`"type" is required and must be "content", "media" or "settings".`, 400);
+    }
+
+    const octokit = createOctokitInstance(token);
+    let response;
+    try {
+      response = await octokit.rest.repos.getContent({
+        owner: params.owner,
+        repo: params.repo,
+        path: normalizedPath,
+        ref: params.branch,
+      });
+    } catch (error: any) {
+      if (error?.status === 404) throw createHttpError("Not found", 404);
+      throw error;
+    }
+
+    if (Array.isArray(response.data) || response.data.type !== "file" || !response.data.download_url) {
+      throw createHttpError("Expected a file", 400);
+    }
+
+    return Response.json({
+      status: "success",
+      data: {
+        name: response.data.name,
+        url: response.data.download_url,
+      },
+    });
+  } catch (error: any) {
+    console.error(error);
+    return toErrorResponse(error);
+  }
+}
 
 export async function DELETE(
   request: NextRequest,

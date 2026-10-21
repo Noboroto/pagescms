@@ -83,3 +83,16 @@ Unset: upstream behaviour.
 | `app/(main)/page.tsx`, `app/(main)/home-page.tsx` | Server wrapper doing the redirect; old client page moved, `hideTemplates` prop. |
 | `components/repo/repo-sidebar.tsx`, `app/(main)/[owner]/[repo]/**/layout.tsx`, `app/(main)/settings/page.tsx`, `app/(main)/admin/page.tsx` | Home links use `/?home=1`. |
 | `.env.local.example` | Documents `DEFAULT_REPO`. |
+
+## Download a file
+
+"Download" item in the file menu (entry editor, collection rows, media tiles, settings). `GET .../files/[path]`
+checks access like the read routes (`getRepoReadContext`; path inside the content `path` / media `input`, the
+schema's extension / media extension allowlist, `.pages.yml` for GitHub users only) and returns GitHub's short-lived `download_url`, not the
+bytes, so large media is not capped by the Vercel response size limit. The browser fetches it as a blob
+(raw.githubusercontent.com allows any origin) because `<a download>` is ignored for cross-origin links.
+
+| File | Why |
+| --- | --- |
+| `app/api/[owner]/[repo]/[branch]/files/[path]/route.ts` | `GET` handler + `isWithin` path check. |
+| `components/file/file-options.tsx` | Download menu item. |
