@@ -27,6 +27,7 @@ import {
   normalizePath
 } from "@/lib/utils/file";
 import type { ApiSuccess, EntryData, EntryHistoryItem } from "@/types/api";
+import type { Field } from "@/types/field";
 import { EntryForm } from "./entry-form";
 import { EntryHistoryDropdown } from "./entry-history";
 import { EmptyCreate } from "@/components/empty-create";
@@ -182,7 +183,9 @@ export function Entry({
             list: true,
             fields: schema.fields
           }]
-        : schema.fields;
+        : schema.fields.map((field: Field) =>
+            field.readonly === "edit" ? { ...field, readonly: Boolean(path) } : field
+          );
   }, [schema, entry, path, showFilenameField]);
 
   const entryContentObject = useMemo(() => {
@@ -736,6 +739,12 @@ export function Entry({
     if (!file || !schema) return;
     try {
       const values = parseEntryContent(await file.text(), schema, config) as Record<string, unknown>;
+      // Locked fields keep the saved entry's value: an import must not do what the form forbids.
+      if (path && schema.list !== true && entry?.contentObject) {
+        for (const field of (schema.fields ?? []) as Field[]) {
+          if (field.readonly) values[field.name] = entry.contentObject[field.name];
+        }
+      }
       setImportedContent({
         values: schema.list === true ? { listWrapper: values } : values,
         version: Date.now(),
@@ -747,7 +756,7 @@ export function Entry({
     } catch (error: any) {
       toast.error(error.message);
     }
-  }, [config, path, schema, showFilenameField]);
+  }, [config, entry, path, schema, showFilenameField]);
 
   const headerNode = useMemo(() => (
     <div className="flex min-w-0 items-center gap-2">

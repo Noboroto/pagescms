@@ -116,3 +116,18 @@ collection page (accepted on `type: file` too, but only collections show the men
 | `lib/download-file.ts` (new), `components/file/file-options.tsx` | Shared blob download. |
 | `components/collection/collection-templates.tsx` (new), `components/collection/collection.tsx` | Templates menu. |
 | `app/api/[owner]/[repo]/[branch]/files/[path]/route.ts` | `template` type. |
+
+## Lock a field once the entry exists
+
+Field option `readonly: edit` (top-level fields only; nested fields treat it as `true`): editable when creating an
+entry, locked when editing it. Used for a member's name, which the site turns into the page URL. "Import from
+file" on an existing entry keeps the saved value of every `readonly` top-level field. Enforced in the UI only, like
+upstream `readonly`; the site's content check rejects a member whose accent-free name no longer spells its file name.
+`generateFilename` also maps Đ/đ to D/d before `slugify` (which would write "dj"), matching how Vietnamese
+names are romanized in URLs.
+
+| File | Why |
+| --- | --- |
+| `lib/config-schema.ts`, `types/field.ts` | `readonly: boolean \| "edit"`. |
+| `components/entry/entry.tsx` | Resolves `"edit"` against whether the entry has a path. |
+| `lib/schema.ts` | Đ/đ before `slugify`. |

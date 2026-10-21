@@ -433,7 +433,8 @@ const generateFilename = (
   // Replace field placeholders, accepting both `{fields.title}` and `{title}`.
   return pattern.replace(/\{(?:fields\.)?([^}]+)\}/g, (_, fieldName) => {
     const value = safeAccess(state, fieldName);
-    return value ? slugify(String(value), { lower: true, strict: true }) : "";
+    // slugify maps Đ/đ to "dj"; Vietnamese romanizes it as "d" ("Đỗ Đạt" -> do-dat).
+    return value ? slugify(String(value).replace(/Đ/g, "D").replace(/đ/g, "d"), { lower: true, strict: true }) : "";
   });
 };
 

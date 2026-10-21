@@ -396,8 +396,8 @@ const generateFieldObjectSchema = (
           .optional()
           .nullable(),
         readonly: z
-          .boolean({
-            message: "'readonly' must be a boolean.",
+          .union([z.boolean(), z.literal("edit")], {
+            message: "'readonly' must be a boolean or 'edit'.",
           })
           .optional()
           .nullable(),
